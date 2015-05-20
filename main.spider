@@ -1,0 +1,237 @@
+use document;
+use window;
+
+fn Point(x = 0, y = 0) {
+	this.x = x;
+	this.y = y;
+	this.add = (that) => {
+		this.x += that.x;
+		this.y += that.y;
+		return this;
+	};
+	this.sub = (that) => {
+		this.x -= that.x;
+		this.y -= that.y;
+		return this;
+	};
+	this.dist = (that) => {
+		return Math.sqrt(Math.pow(this.x - that.x, 2) + Math.pow(this.y - that.y, 2));
+	};
+}
+
+fn GameObject(game, location = new Point(), velocity = new Point(), acceleration = new Point()) {
+	this.game = game;
+	this.location = location;
+	this.velocity = velocity;
+	this.acceleration = acceleration;
+	this.move = () => {
+		this.location.add(this.velocity);
+		this.velocity.add(this.acceleration);
+	};
+	this.draw = () => {
+	};
+	this.collides = (other) => {
+		if this.radius? and other.radius? {
+			return this.radius + other.radius > this.location.dist(other.location);
+		}
+
+		return false;
+	};
+}
+
+fn Asteroid(game, location, velocity, radius)
+	extends GameObject(game, location, velocity) {
+	this.radius = radius;
+	this.draw = () => {
+		var ctx = this.game.ctx;
+		ctx.save();
+		ctx.translate(this.location.x, this.location.y);
+		ctx.beginPath();
+		ctx.arc(0, 0, this.radius, 0.0, 2.0 * Math.PI);
+		ctx.strokeStyle = 'red';
+		ctx.stroke();
+		ctx.restore();
+	};
+}
+
+fn AsteroidGenerator(game) 
+	extends GameObject(game) {
+	this.move = () => {
+		if Math.random() > 0.95 {
+			var [a, b, c] = [Math.random() for i in [1..3]];
+			var radius = a * 40 + 10;
+			var angle = b * 2 * Math.PI;
+			var vel = c * 4 + 1;
+			var dist = Math.sqrt(Math.pow(game.ctx.canvas.width, 2) + Math.pow(game.ctx.canvas.height, 2)) + radius;
+			var location = new Point(Math.cos(angle) * dist, Math.sin(angle) * dist);
+			var velocity = new Point(-Math.cos(angle) * vel, -Math.sin(angle) * vel);
+			game.items <- new Asteroid(game, location, velocity, radius);
+		}
+	};
+}
+
+fn Ship(game)
+	extends GameObject(game) {
+	this.radius = 10;
+	this.draw = () => {
+		var ctx = this.game.ctx;
+		var alpha = Math.atan2(-this.velocity.x, this.velocity.y);
+		ctx.save();
+		ctx.translate(this.location.x, this.location.y);
+		ctx.rotate(alpha);
+		ctx.beginPath();
+		ctx.moveTo(0, 10);
+		ctx.lineTo(10, -10);
+		ctx.lineTo(-10, -10);
+		ctx.closePath();
+		ctx.strokeStyle = 'green';
+		ctx.stroke();
+		ctx.restore();
+	};
+}
+
+fn ShipController(game, ship)
+	extends GameObject(game) {
+	this.ship = ship;
+	this.up = false;
+	this.down = false;
+	this.left = false;
+	this.right = false;
+	this.change = (keyCode, state) => {
+		switch keyCode {
+			case 37: {
+				this.left = state;
+			}
+			case 38: {
+				this.up = state;
+			}
+			case 39: {
+				this.right = state;
+			}
+			case 40: {
+				this.down = state;
+			}
+		}
+	};
+	var da = Math.PI * 0.03;
+	var ds = 0.1;
+	var angle = 0;
+	var total = 0;
+	this.move = () => {
+		angle += this.right * da - this.left * da;
+		total += this.up * ds - this.down * ds;
+
+		if total < 0 {
+			total = 0;
+		} else if total > 10 {
+			total = 10;
+		}
+
+		this.ship.velocity = new Point(-Math.cos(angle) * total, -Math.sin(angle) * total);
+	};
+}
+
+fn Background(game)
+	extends GameObject(game) {
+	this.draw = () => {
+		if this.image? {
+			var ctx = this.game.ctx;
+			var img = this.image;
+			var w = ctx.canvas.width;
+			var h = ctx.canvas.height;
+			ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight, -0.5 * w, -0.5 * h, w, h);
+		}
+	};
+}
+
+fn Game(ctx) {
+	this.ctx = ctx;
+	this.items = [];
+	this.start = () => {
+		var drawing;
+		this.start = () -> {};
+
+		window.setInterval(() => {
+			for item in this.items {
+				item.move();
+			}
+
+			for var i = this.items.length - 1; i--; {
+				for var j = i + 1; j < this.items.length; j++ {
+					if this.items[i].collides(this.items[j]) {
+						::console.log('collission');
+						this.items.splice(j, 1);
+						this.items.splice(i, 1);
+						break;
+					}
+				}
+			}
+		}, 25);
+
+		drawing = () => {
+			ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+			ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height, 'black');
+			ctx.save();
+			ctx.translate(ctx.canvas.width * 0.5, ctx.canvas.height * 0.5);
+
+			for item in this.items {
+				item.draw();
+			}
+
+			ctx.restore();
+			window.requestAnimationFrame(drawing);
+		};
+		
+		drawing();
+	};
+}
+
+fn loadImage(url) {
+	return new Promise(fn (fulfill, reject) {
+		var img = document.createElement('img');
+		img.src = url;
+		img.onload = () -> {
+			fulfill(img);
+		};
+		img.onerror = () -> {
+			reject(img);
+		};
+	});
+}
+
+document.addEventListener('DOMContentLoaded', async fn() {
+	var canvas = document.querySelector('canvas');
+	var body = document.body;
+	var context = canvas.getContext('2d');
+	var game = new Game(context);
+	var ship = new Ship(game);
+	var background = new Background(game);
+	var controller = new ShipController(game, ship);
+	var asteroids = new AsteroidGenerator(game);
+	var resized = () -> {
+		canvas.width = body.clientWidth;
+		canvas.height = body.clientHeight;
+		canvas.style.marginLeft = (-0.5 * canvas.width) + 'px';
+		canvas.style.marginTop = (-0.5 * canvas.height) + 'px';
+	};
+
+	background.image = await loadImage('http://i.ytimg.com/vi/qbzFSfWwp-w/maxresdefault.jpg');
+
+	game.items <- background;
+	game.items <- ship;
+	game.items <- controller;
+	game.items <- asteroids;
+
+	body.onresize = resized;
+
+	window.addEventListener('keydown', fn(ev) {
+		controller.change(ev.keyCode, true);
+	}, false);
+
+	window.addEventListener('keyup', fn(ev) {
+		controller.change(ev.keyCode, false);
+	}, false);
+
+	game.start();
+	resized();
+});
